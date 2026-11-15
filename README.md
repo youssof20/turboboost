@@ -1,7 +1,7 @@
 # TurboBoost
 
 Real-time turbo, blow-off, flutter and pop sounds layered over your real engine. A web app for Chrome on Android,
-fed by a Bluetooth LE OBD-II adapter, with a synth engine running in an AudioWorklet. Full plan: `TurboBoost — Research & Build Plan.md`.
+fed by a Bluetooth LE OBD-II adapter, with a synth engine running in an AudioWorklet.
 
 ## Try it without a car
 `npm install && npm run dev`, open http://localhost:5173, tap **Demo**, and **hold the big pad** (or Spacebar) to rev.
