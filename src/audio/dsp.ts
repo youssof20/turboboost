@@ -283,6 +283,10 @@ export class TurboDSP {
   private flutBp = new Svf();
   private flutStrength = 0;
   private pitchDip = 0;
+  private flutLo = new Svf();
+  private flutPhase = 0;
+  private flutDecayC = 0.9990;
+  private flutCenter = 1;
   // one-shots
   private bov: BovVoice[] = [0, 1, 2].map(() => ({ active: false, t: 0, tau: 0.1, gain: 0, muffled: false, hp: new Svf(), bp: new Svf() }));
   private shots: ShotVoice[] = [];
@@ -591,7 +595,7 @@ export class TurboDSP {
       sv.wobble += (sv.wobbleTarget - sv.wobble) * (1 - Math.exp(-dt / 0.05));
 
       const level = Math.pow(Math.max(0, shaft), 1.5) * (0.3 + 0.7 * pedal) * chirp * whineBase * stg[si]!.weight * twin;
-      const f = this.stageFreq(st.whineHzMin, st.whineHzMax, sv.pos) * (1 + t.wobble * sv.wobble) * (1 - 0.07 * this.pitchDip);
+      const f = this.stageFreq(st.whineHzMin, st.whineHzMax, sv.pos) * (1 + t.wobble * sv.wobble) * (1 - 0.12 * this.pitchDip);
       sv.targets[0] = t.partials[0]! * level * this.partialFade(f, 1, nyq);
       sv.targets[1] = t.partials[1]! * (0.4 + 0.6 * pedal) * level * this.partialFade(f, 2, nyq);
       sv.targets[2] = t.partials[2]! * pedal * level * this.partialFade(f, 3, nyq);
@@ -642,7 +646,7 @@ export class TurboDSP {
     const wgT = clamp((s.boost - p.turbo.wastegatePoint * p.turbo.maxBoost) / Math.max(0.01, 0.05 * p.turbo.maxBoost), 0, 1) * 0.12 * p.mix.wastegate * gate;
 
     // flutter band
-    this.flutBp.set(lerp(p.lift.flutter.bandLow, p.lift.flutter.bandHigh, 0.2 + 0.8 * this.flutBoostN * (this.flutTotal > 0 ? this.flutLeft / this.flutTotal : 0)), 1.2, sr);
+    this.flutBp.set(lerp(p.lift.flutter.bandLow, p.lift.flutter.bandHigh, 0.2 + 0.8 * this.flutBoostN * (this.flutTotal > 0 ? this.flutLeft / this.flutTotal : 0)) * this.flutCenter, 0.8, sr);
 
     // BOV voices: sweep high-pass per chunk
     for (const v of this.bov) {
@@ -696,17 +700,21 @@ export class TurboDSP {
         } else {
           const fl = p.lift.flutter;
           const prog = 1 - this.flutLeft / this.flutTotal;
-          const hz = lerp(fl.hzStart, fl.hzEnd, prog);
-          this.flutTimer = (1 / hz) * (0.88 + 0.24 * this.noiseRng.next());
+          const hz = fl.hzStart * Math.pow(fl.hzEnd / fl.hzStart, prog);
+          // irregular, like a real stalling compressor: jittered spacing, uneven pulse size and length
+          this.flutTimer = (1 / hz) * (0.7 + 0.6 * this.noiseRng.next());
           this.flutEnv = 1;
-          this.flutAmp = this.flutStrength * Math.pow(this.flutLeft / this.flutTotal, 0.7) * (0.8 + 0.4 * this.noiseRng.next());
+          const weak = this.noiseRng.next() < 0.18 ? 0.45 : 1;
+          this.flutAmp = this.flutStrength * Math.pow(this.flutLeft / this.flutTotal, 0.6) * (0.55 + 0.6 * this.noiseRng.next()) * weak;
+          this.flutDecayC = Math.exp(-1 / (sr * (0.04 + 0.04 * this.noiseRng.next())));
+          this.flutCenter = 0.75 + 0.5 * this.noiseRng.next();
           this.pitchDip = 1;
           this.flutLeft--;
         }
       }
     }
-    const flutDecay = Math.exp(-1 / (sr * 0.035));
-    const dipDecay = Math.exp(-1 / (sr * 0.04));
+    const dipDecay = Math.exp(-1 / (sr * 0.07));
+    this.flutLo.set(230, 0.7, sr);
     const pinkMask = this.pink.length - 1;
 
     // ---- sample loop ----
@@ -742,6 +750,7 @@ export class TurboDSP {
       }
       // soft saturation on the whine bus: harmonics that move with level
       whine = Math.tanh(whine * satA) / satA;
+      whine *= 1 - 0.5 * this.flutEnv * (this.flutActive ? 1 : 0.4);
 
       // whoosh: pink -> tilt -> bandpass -> AM at firing frequency
       this.whooshLp += (pn - this.whooshLp) * lpCoef;
@@ -792,9 +801,15 @@ export class TurboDSP {
       let flut = 0;
       if (this.flutEnv > 1e-4) {
         this.flutBp.tick(wn);
-        const att = Math.min(1, (1 - this.flutEnv) * 14 + 0.04);
-        flut = this.flutBp.bp * this.flutEnv * att * this.flutAmp * 1.1;
-        this.flutEnv *= flutDecay;
+        this.flutLo.tick(wn);
+        const att = Math.min(1, (1 - this.flutEnv) * 9 + 0.03);
+        const e = this.flutEnv * att;
+        // chuff of air (mid band + low thump) plus the stalling wheel tone dropping in pitch
+        this.flutPhase += (f0 * (1 - 0.3 * (1 - this.flutEnv))) / sr;
+        if (this.flutPhase >= 1) this.flutPhase -= 1;
+        const tone = sinT(this.flutPhase) + 0.3 * sinT(this.flutPhase * 2);
+        flut = (this.flutBp.bp * 0.8 + this.flutLo.lp * 1.6 + tone * 0.35) * e * this.flutAmp;
+        this.flutEnv *= this.flutDecayC;
       }
       this.pitchDip *= dipDecay;
 
