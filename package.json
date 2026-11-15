@@ -1,0 +1,32 @@
+{
+  "name": "turboboost",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Real-time turbo sound layered over your real engine, driven by OBD-II over BLE.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "samples": "node scripts/gen-samples.mjs",
+    "log": "node scripts/gen-log.mjs",
+    "icons": "node scripts/gen-icons.mjs",
+    "render": "node scripts/render.ts",
+    "spectrum": "node scripts/spectrum.ts",
+    "deploy": "git push origin main",
+    "check:worklet": "node scripts/check-worklet.mjs",
+    "ci": "npm run typecheck && npm test && npm run build && npm run check:worklet"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/web-bluetooth": "^0.0.22",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^4.1.12",
+    "workbox-build": "^7.4.1",
+    "workbox-window": "^7.4.1"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "bov": [
+    "bov_01",
+    "bov_02",
+    "bov_03",
+    "bov_04",
+    "bov_05",
+    "bov_06",
+    "bov_07",
+    "bov_08"
+  ],
+  "pop": [
+    "pop_01",
+    "pop_02",
+    "pop_03",
+    "pop_04",
+    "pop_05",
+    "pop_06",
+    "pop_07",
+    "pop_08",
+    "pop_09",
+    "pop_10",
+    "pop_11",
+    "pop_12",
+    "pop_13",
+    "pop_14",
+    "pop_15",
+    "pop_16"
+  ],
+  "ir": "ir/airbox_small.wav"
+}

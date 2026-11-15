@@ -1,0 +1,7 @@
+node_modules
+dist
+out/*.wav
+*.log
+.DS_Store
+.vite
+dev-dist
