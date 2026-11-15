@@ -18,6 +18,7 @@ export type ToWorklet =
   | { t: 'mode'; mode: Mode }
   | { t: 'master'; v: number }
   | { t: 'headphone'; on: boolean }
+  | { t: 'cabin'; on: boolean }
   | { t: 'link'; alive: boolean }
   | { t: 'start' }
   | { t: 'stop' };
@@ -43,6 +44,7 @@ class TurboProcessor extends AudioWorkletProcessor {
       case 'mode': d.setMode(m.mode); break;
       case 'master': d.setMaster(m.v); break;
       case 'headphone': d.setHeadphone(m.on); break;
+      case 'cabin': d.setCabin(m.on); break;
       case 'link': d.setLink(m.alive); break;
       case 'start': d.start(); break;
       case 'stop': d.stop(); break;

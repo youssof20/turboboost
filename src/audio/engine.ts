@@ -43,7 +43,7 @@ export class AudioEngine {
   }
 
   /** Must be called from a user gesture (autoplay rules). Safe to call twice. */
-  start(profile: Profile, opts: { latencyHint?: 'interactive' | 'zero'; master: number; mode: Mode; headphone: boolean }): Promise<void> {
+  start(profile: Profile, opts: { latencyHint?: 'interactive' | 'zero'; master: number; mode: Mode; headphone: boolean; cabin: boolean }): Promise<void> {
     if (this.starting) return this.starting;
     this.starting = this.doStart(profile, opts).catch((e) => {
       this.starting = null;
@@ -52,7 +52,7 @@ export class AudioEngine {
     return this.starting;
   }
 
-  private async doStart(profile: Profile, opts: { latencyHint?: 'interactive' | 'zero'; master: number; mode: Mode; headphone: boolean }): Promise<void> {
+  private async doStart(profile: Profile, opts: { latencyHint?: 'interactive' | 'zero'; master: number; mode: Mode; headphone: boolean; cabin: boolean }): Promise<void> {
     const ctx = new AudioContext({ latencyHint: opts.latencyHint === 'zero' ? 0 : 'interactive' });
     this.ctx = ctx;
     // resume inside the gesture, before any await that could lose it
@@ -96,6 +96,7 @@ export class AudioEngine {
     this.post({ t: 'mode', mode: opts.mode });
     this.post({ t: 'master', v: opts.master });
     this.post({ t: 'headphone', on: opts.headphone });
+    this.post({ t: 'cabin', on: opts.cabin });
 
     await resumed;
     await Promise.all([this.loadSamples(), this.loadIr(profile.body.irFile)]);
@@ -227,6 +228,9 @@ export class AudioEngine {
   }
   setMaster(v: number): void {
     this.post({ t: 'master', v });
+  }
+  setCabin(on: boolean): void {
+    this.post({ t: 'cabin', on });
   }
   setHeadphone(on: boolean): void {
     this.post({ t: 'headphone', on });

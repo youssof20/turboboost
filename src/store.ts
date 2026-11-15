@@ -36,6 +36,8 @@ export interface Settings {
   master: number;
   mode: Mode;
   headphone: boolean;
+  /** true = hear it from inside the cabin, false = engine bay */
+  cabin: boolean;
   dim: boolean;
   adapterId: string | null;
   adapterName: string | null;
@@ -50,6 +52,7 @@ const DEFAULT_SETTINGS: Settings = {
   master: 0.6,
   mode: 'full',
   headphone: false,
+  cabin: true,
   dim: false,
   adapterId: null,
   adapterName: null,

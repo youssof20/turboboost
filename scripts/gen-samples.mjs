@@ -64,28 +64,28 @@ function bov(seed) {
   const r = rng(seed * 7919);
   const dur = 0.35 + r() * 0.55;
   const tau = 0.07 + r() * 0.16;
-  const peakF = 2200 + r() * 1800;
-  const sweepTop = 1300 + r() * 900;
+  const peakF = 1100 + r() * 900;
+  const sweepTop = 900 + r() * 600;
   const n = Math.round(dur * SR);
   const out = new Float32Array(n);
   const hp = new Svf(), bp = new Svf(), lp = new Svf(), tail = new Svf();
-  const stutter = r() < 0.4; // some valves chatter
+  const stutter = false; // no chatter: it reads as a knock
   for (let i = 0; i < n; i++) {
     const t = i / SR;
     if (i % 32 === 0) {
-      hp.set(600 + (sweepTop - 600) * Math.exp(-t / 0.09), 0.9);
-      bp.set(peakF * (0.8 + 0.2 * Math.exp(-t / 0.12)), 4);
-      lp.set(6500, 0.7);
-      tail.set(1800 + 600 * Math.exp(-t / 0.4), 12);
+      hp.set(380 + (sweepTop - 380) * Math.exp(-t / 0.09), 0.7);
+      bp.set(peakF * (0.8 + 0.2 * Math.exp(-t / 0.12)), 2);
+      lp.set(4200, 0.6);
+      tail.set(700 + 300 * Math.exp(-t / 0.4), 2);
     }
     const nz = r() * 2 - 1;
     hp.tick(nz); bp.tick(nz); tail.tick(nz);
-    const att = Math.min(1, t / 0.006);
+    const att = Math.min(1, t / 0.014);
     let env = att * Math.exp(-t / tau);
     if (stutter) env *= 0.75 + 0.25 * Math.sin(2 * Math.PI * 38 * t) ** 2;
-    const click = t < 0.004 ? (1 - t / 0.004) * Math.min(1, t / 0.0006) * (r() * 2 - 1) * 0.5 : 0;
+    const click = 0;
     const hiss = (hp.hp + bp.bp * 0.9) * env;
-    const whine = tail.bp * 0.25 * Math.exp(-t / (tau * 2.2)) * att;
+    const whine = tail.bp * 0.15 * Math.exp(-t / (tau * 2.2)) * att;
     lp.tick(hiss + whine + click);
     out[i] = lp.lp;
   }
@@ -99,31 +99,37 @@ function pop(seed) {
   const n = Math.round(dur * SR);
   const out = new Float32Array(n);
   const body = new Svf(), mid = new Svf();
-  const bodyF = 120 + r() * 380;
+  const bodyF = 70 + r() * 200;
   const tau = 0.02 + r() * 0.04;
   const clicks = [];
   const nc = 1 + Math.floor(r() * 3);
-  for (let c = 0; c < nc; c++) clicks.push({ at: r() * dur * 0.6, amp: 0.3 + r() * 0.5, f: 700 + r() * 2200 });
+  for (let c = 0; c < nc; c++) clicks.push({ at: r() * dur * 0.6, amp: 0.15 + r() * 0.25, f: 250 + r() * 400 });
   for (let i = 0; i < n; i++) {
     const t = i / SR;
-    if (i % 32 === 0) { body.set(bodyF, 3 + r() * 3); mid.set(900 + r() * 700, 1.5); }
+    if (i % 32 === 0) { body.set(bodyF, 3 + r() * 3); mid.set(350 + r() * 300, 1); }
     const nz = r() * 2 - 1;
     body.tick(nz); mid.tick(nz);
     const env = Math.min(1, t / 0.002) * Math.exp(-t / tau);
     let y = (body.bp * 1.6 + mid.bp * 0.45) * env;
     for (const c of clicks) {
       const dt = t - c.at;
-      if (dt >= 0 && dt < 0.012) y += Math.sin(2 * Math.PI * c.f * dt) * Math.exp(-dt / 0.0025) * c.amp * Math.min(1, dt / 0.0005);
+      if (dt >= 0 && dt < 0.012) y += Math.sin(2 * Math.PI * c.f * dt) * Math.exp(-dt / 0.008) * c.amp * Math.min(1, dt / 0.003);
     }
-    out[i] = Math.tanh(y * 1.4);
+    out[i] = y;
   }
-  return normalise(out, 0.8);
+  const lpf = new Svf();
+  for (let i = 0; i < n; i++) {
+    if (i % 32 === 0) lpf.set(1400, 0.6);
+    lpf.tick(out[i]);
+    out[i] = lpf.lp;
+  }
+  return normalise(out, 0.7);
 }
 
 // ---- intake impulse response: tiny airbox, 180 ms ----
 function ir() {
   const r = rng(424242);
-  const n = Math.round(0.18 * SR);
+  const n = Math.round(0.32 * SR);
   const out = new Float32Array(n);
   const lp = new Svf();
   const early = [0.0021, 0.0043, 0.0079, 0.0121].map((t) => Math.round(t * SR));
@@ -131,7 +137,7 @@ function ir() {
     const t = i / SR;
     if (i % 32 === 0) lp.set(5200 * Math.exp(-t / 0.12) + 700, 0.7);
     lp.tick(r() * 2 - 1);
-    out[i] = lp.lp * Math.exp(-t / 0.045);
+    out[i] = lp.lp * Math.exp(-t / 0.085);
   }
   out[0] = 1;
   for (const [k, e] of early.entries()) out[e] += 0.5 / (k + 1);

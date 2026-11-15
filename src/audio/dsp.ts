@@ -23,6 +23,11 @@ export const DSP = {
   duckHoldS: 0.3,
   duckReleaseS: 0.15,
   headphoneLowPassHz: 9000,
+  bayLowPassHz: 9000,
+  cabinShotHz: 2600,
+  cabinBoomHz: 170,
+  cabinBoom: 0.35,
+  roarNorm: 0.3,
   sportScale: 0.5,
   speedDuckMaxKmh: 120,
   whineNorm: 0.38,
@@ -256,6 +261,12 @@ export class TurboDSP {
   private wgHp = new Svf();
   private res: Svf[] = [new Svf(), new Svf(), new Svf(), new Svf()];
   private interior = new Svf();
+  private cabin = true;
+  private boom = new Svf();
+  private shotL = new Svf();
+  private shotR = new Svf();
+  private roarLp = new Svf();
+  private roarGain = 0;
   private scPhase = 0;
   private scBp = new Svf();
   private scGain = 0;
@@ -305,7 +316,7 @@ export class TurboDSP {
       if (r) this.res[i]!.set(r[0], r[1], sr);
     }
     this.foundLp.set(600, 0.7, sr);
-    this.interior.set(this.headphone ? DSP.headphoneLowPassHz : p.body.interiorLowPassHz, 0.6, sr);
+    this.applyView();
     this.wgHp.set(3000, 0.7, sr);
     for (let i = 0; i < 2; i++) this.stages[i]!.wobbleTimer = 0;
   }
@@ -325,9 +336,25 @@ export class TurboDSP {
   setMaster(v: number): void {
     this.masterVol = clamp(v, 0, 1);
   }
+  /** cabin = heard from inside the car (muffled, boomy); false = engine bay (open, bright) */
+  setCabin(on: boolean): void {
+    this.cabin = on;
+    this.applyView();
+  }
+  private bright(): boolean {
+    return this.headphone || !this.cabin;
+  }
+  private applyView(): void {
+    const sr = this.sr;
+    this.interior.set(this.bright() ? (this.cabin ? DSP.headphoneLowPassHz : DSP.bayLowPassHz) : this.profile.body.interiorLowPassHz, 0.6, sr);
+    this.boom.set(DSP.cabinBoomHz, 0.7, sr);
+    const shotHz = this.bright() ? 12000 : DSP.cabinShotHz;
+    this.shotL.set(shotHz, 0.6, sr);
+    this.shotR.set(shotHz, 0.6, sr);
+  }
   setHeadphone(on: boolean): void {
     this.headphone = on;
-    this.interior.set(on ? DSP.headphoneLowPassHz : this.profile.body.interiorLowPassHz, 0.6, this.sr);
+    this.applyView();
   }
   /** link = OBD data is arriving. false fades the sound out over 500 ms; true brings it back */
   setLink(alive: boolean): void {
@@ -594,6 +621,9 @@ export class TurboDSP {
     const tiltA = p.whoosh.tilt;
     const lpCoef = 1 - Math.exp((-TWO_PI * 700) / sr);
 
+    // intake roar: low-mid air rush that gives the sound depth
+    const roarT = DSP.roarNorm * p.mix.whoosh * flowN * (0.35 + 0.65 * flowN) * gate * this.duck;
+    this.roarLp.set(220 + 520 * clamp(s.shaft, 0, 1), 0.7, sr);
     // foundation (quiet saw at fundamental / 4)
     const foundT = DSP.foundationNorm * p.mix.foundation * Math.pow(Math.max(0, s.shaft), 1.5) * (0.4 + 0.6 * pedal) * gate * this.duck;
     const foundF = fMain / 4;
@@ -612,18 +642,18 @@ export class TurboDSP {
     const wgT = clamp((s.boost - p.turbo.wastegatePoint * p.turbo.maxBoost) / Math.max(0.01, 0.05 * p.turbo.maxBoost), 0, 1) * 0.12 * p.mix.wastegate * gate;
 
     // flutter band
-    this.flutBp.set(lerp(p.lift.flutter.bandLow, p.lift.flutter.bandHigh, 0.2 + 0.8 * this.flutBoostN * (this.flutTotal > 0 ? this.flutLeft / this.flutTotal : 0)), 2.2, sr);
+    this.flutBp.set(lerp(p.lift.flutter.bandLow, p.lift.flutter.bandHigh, 0.2 + 0.8 * this.flutBoostN * (this.flutTotal > 0 ? this.flutLeft / this.flutTotal : 0)), 1.2, sr);
 
     // BOV voices: sweep high-pass per chunk
     for (const v of this.bov) {
       if (!v.active) continue;
-      const sweep = 600 + 900 * Math.exp(-v.t / 0.08);
+      const sweep = 450 + 650 * Math.exp(-v.t / 0.09);
       if (v.muffled) {
         v.hp.set(300 + 300 * Math.exp(-v.t / 0.08), 0.7, sr);
         v.bp.set(1200, 3, sr);
       } else {
-        v.hp.set(sweep, 0.9, sr);
-        v.bp.set(2000 + 1500 * Math.exp(-v.t / 0.15), 4, sr);
+        v.hp.set(sweep, 0.7, sr);
+        v.bp.set(1200 + 900 * Math.exp(-v.t / 0.15), 2.2, sr);
       }
     }
 
@@ -640,6 +670,7 @@ export class TurboDSP {
 
     // ---- ramps ----
     const invM = 1 / m;
+    const roarInc = (roarT - this.roarGain) * invM;
     const incs = this.incs;
     for (let si = 0; si < 2; si++) {
       const sv = this.stages[si]!;
@@ -654,7 +685,7 @@ export class TurboDSP {
     const sv1 = this.stages[1]!;
     const f0 = sv0.f;
     const f1 = ns > 1 ? sv1.f : 0;
-    const fmR = 3.01;
+    const fmR = 1; // harmonic vibrato only: an inharmonic ratio sounds metallic
 
     // flutter pulse step (per chunk resolution is plenty for 40-120 ms pulses)
     if (this.flutActive) {
@@ -674,7 +705,7 @@ export class TurboDSP {
         }
       }
     }
-    const flutDecay = Math.exp(-1 / (sr * 0.02));
+    const flutDecay = Math.exp(-1 / (sr * 0.035));
     const dipDecay = Math.exp(-1 / (sr * 0.04));
     const pinkMask = this.pink.length - 1;
 
@@ -761,14 +792,17 @@ export class TurboDSP {
       let flut = 0;
       if (this.flutEnv > 1e-4) {
         this.flutBp.tick(wn);
-        const att = Math.min(1, (1 - this.flutEnv) * 40 + 0.05);
+        const att = Math.min(1, (1 - this.flutEnv) * 14 + 0.04);
         flut = this.flutBp.bp * this.flutEnv * att * this.flutAmp * 1.1;
         this.flutEnv *= flutDecay;
       }
       this.pitchDip *= dipDecay;
 
+      this.roarLp.tick(pn);
+      const roar = this.roarLp.lp * 2.2 * this.roarGain * am;
+      this.roarGain += roarInc;
       // modal resonator bank in parallel with the dry signal
-      const body = whine + whoosh + found + sc;
+      const body = whine + whoosh + found + sc + roar;
       let resSum = 0;
       for (let k = 0; k < 4; k++) {
         const r = this.res[k]!;
@@ -779,6 +813,11 @@ export class TurboDSP {
       // interior low-pass
       this.interior.tick(bus);
       bus = this.interior.lp;
+      if (this.cabin) {
+        // cabin boom: low-frequency pressure inside the shell
+        this.boom.tick(bus);
+        bus += this.boom.lp * DSP.cabinBoom;
+      }
 
       // stereo placement of the turbo bus (width = short delay on the right)
       this.delayBuf[this.delayPos] = bus;
@@ -791,13 +830,12 @@ export class TurboDSP {
       // synth blow-off voices
       for (const v of this.bov) {
         if (!v.active) continue;
-        const att = Math.min(1, v.t / 0.005);
+        const att = Math.min(1, v.t / 0.012);
         const env = att * Math.exp(-v.t / v.tau);
-        const click = v.t < 0.004 ? (1 - v.t / 0.004) * Math.min(1, v.t / 0.0008) : 0;
         const nz = this.noiseRng.bi();
         v.hp.tick(nz);
         v.bp.tick(nz);
-        const o = (v.muffled ? v.hp.lp * 0.6 + v.bp.bp * 0.8 : v.hp.hp + v.bp.bp * 0.9) * env + nz * click * 0.12;
+        const o = (v.muffled ? v.hp.lp * 0.6 + v.bp.bp * 0.8 : v.hp.hp + v.bp.bp * 0.9) * env;
         const y = o * v.gain * 0.35;
         l += y;
         r += y;
@@ -805,7 +843,9 @@ export class TurboDSP {
         if (v.t > v.tau * 9) v.active = false;
       }
 
-      // recorded one-shots (blow-off, pops, bangs)
+      // recorded one-shots (blow-off, pops, bangs), heard through the same cabin/bay filter
+      let shotInL = 0;
+      let shotInR = 0;
       for (const sh of this.shots) {
         const buf = sh.buf;
         if (buf === null) continue;
@@ -816,10 +856,14 @@ export class TurboDSP {
         }
         const fr = sh.pos - ip;
         const y = (buf[ip]! + (buf[ip + 1]! - buf[ip]!) * fr) * sh.gain;
-        l += y * sh.l;
-        r += y * sh.r;
+        shotInL += y * sh.l;
+        shotInR += y * sh.r;
         sh.pos += sh.rate;
       }
+      this.shotL.tick(shotInL);
+      this.shotR.tick(shotInR);
+      l += this.shotL.lp;
+      r += this.shotR.lp;
 
       // master + soft limiter (envelope-driven gain, then a tanh clip as the final guarantee)
       l *= master;
@@ -848,9 +892,10 @@ export class TurboDSP {
     this.scGain = scT;
     this.gwGain = gwT;
     this.wgGain = wgT;
+    this.roarGain = roarT;
 
     // interior LP follows the profile/headphone setting smoothly (set() is cheap and stateless wrt memory)
-    this.interior.set(this.headphone ? DSP.headphoneLowPassHz : p.body.interiorLowPassHz, 0.6, sr);
+    this.applyView();
   }
 
   /** shaft (0..1, can overshoot slightly) -> whine Hz via the perceptual map */

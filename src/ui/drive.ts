@@ -100,12 +100,20 @@ export function buildDrive(app: App): DriveView {
     app.settings.mode,
     (m) => app.setMode(m),
   );
+  const viewSeg = segmented<'cabin' | 'bay'>(
+    [
+      { value: 'cabin', label: 'Cabin' },
+      { value: 'bay', label: 'Engine bay' },
+    ],
+    app.settings.cabin ? 'cabin' : 'bay',
+    (v) => app.setCabin(v === 'cabin'),
+  );
   const volInput = h('input', { type: 'range', min: 0, max: 1, step: 0.01, 'aria-label': 'Volume' });
   volInput.value = String(app.settings.master);
   volInput.addEventListener('input', () => app.setMaster(+volInput.value));
   const vol = h('div', { class: 'vol' }, h('div', { class: 'cap' }, 'Volume'), volInput);
   const tiles = h('div', { class: 'tiles' });
-  const controls = h('div', { class: 'controls' }, modeSeg.el, vol, tiles);
+  const controls = h('div', { class: 'controls' }, modeSeg.el, viewSeg.el, vol, tiles);
 
   const left = h('div', { class: 'col' }, gaugeWrap, boost, stats);
   const right = h('div', { class: 'col' }, pad, controls);
@@ -163,6 +171,7 @@ export function buildDrive(app: App): DriveView {
     banner.textContent = link.state === 'error' ? 'Adapter problem: ' + link.message : 'Reconnecting…';
     buildTiles();
     modeSeg.set(app.settings.mode);
+    viewSeg.set(app.settings.cabin ? 'cabin' : 'bay');
     volInput.value = String(app.settings.master);
     menuBtn.toggleAttribute('data-locked', !app.isParked());
     gauge.refreshColors();

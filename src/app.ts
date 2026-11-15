@@ -111,6 +111,7 @@ export class App {
           master: this.settings.master,
           mode: this.settings.mode,
           headphone: this.settings.headphone,
+          cabin: this.settings.cabin,
         });
         await this.restoreUserSamples();
       }
@@ -174,6 +175,11 @@ export class App {
   setHeadphone(on: boolean): void {
     this.settings.headphone = on;
     this.engine.setHeadphone(on);
+    this.persist();
+  }
+  setCabin(on: boolean): void {
+    this.settings.cabin = on;
+    this.engine.setCabin(on);
     this.persist();
   }
   setDim(on: boolean): void {
