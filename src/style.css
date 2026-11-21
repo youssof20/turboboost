@@ -75,7 +75,7 @@ output { font-variant-numeric: tabular-nums; }
 .sub { color: var(--dim); font-size: 18px; margin: -6px 0 2px; }
 
 /* ---------- drive ---------- */
-.top { display: flex; align-items: center; padding: 8px 20px; min-height: 52px; }
+.top { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px 8px 20px; min-height: 64px; }
 .status { display: flex; align-items: center; gap: 10px; min-height: 44px; }
 .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--dim); flex: none; }
 .dot.live { background: var(--text); border-color: var(--text); }
@@ -110,7 +110,8 @@ output { font-variant-numeric: tabular-nums; }
 .bottombar input[type='range'] { flex: 1; }
 .bottombar input[disabled] { opacity: 0.35; }
 .iconbtn { width: var(--touch); height: var(--touch); border-radius: 50%; border: 0; background: var(--panel-2); font-size: 22px; cursor: pointer; flex: none; display: grid; place-items: center; }
-.iconbtn.on { background: var(--text); }
+.iconbtn.on { background: var(--text); color: #000; }
+.iconbtn svg { display: block; }
 .sheet-btn { border-radius: 999px; }
 
 .sheet { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: flex-end; justify-content: center; z-index: 10; animation: fade 0.15s ease-out; }

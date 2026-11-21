@@ -7,6 +7,14 @@ import { h, segmented, fmt } from './dom.ts';
 import { Gauge } from './gauge.ts';
 import type { Mode } from '../audio/dsp.ts';
 
+const SVG = (d: string) => '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+const ICON = {
+  speaker: SVG('<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/>'),
+  muted: SVG('<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/>'),
+  close: SVG('<path d="M6 6l12 12M18 6L6 18"/>'),
+  settings: SVG('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>'),
+};
+
 export interface DriveView {
   el: HTMLElement;
   frame(now: number): void;
@@ -22,6 +30,8 @@ export function buildDrive(app: App): DriveView {
   status.addEventListener('pointerdown', () => (pressTimer = window.setTimeout(() => app.go('diag'), 700)));
   for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) status.addEventListener(ev, () => clearTimeout(pressTimer));
   const banner = h('div', { class: 'banner hidden' }, 'Reconnecting…');
+  const setBtn = h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Settings', onclick: () => openSheet() });
+  setBtn.innerHTML = ICON.settings;
 
   // ---- gauge ----
   const canvas = h('canvas');
@@ -72,6 +82,7 @@ export function buildDrive(app: App): DriveView {
   // ---- sheet ----
   const sheetBody = h('div', { class: 'sheet-body' });
   const sheet = h('div', { class: 'sheet', hidden: true, onclick: (e: Event) => { if (e.target === sheet) closeSheet(); } }, h('div', { class: 'sheet-panel' }, sheetBody));
+  function closeBtn() { const b = h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Close', onclick: closeSheet }); b.innerHTML = ICON.close; return b; }
   function closeSheet() { sheet.hidden = true; }
   function openSheet() { buildSheet(); sheet.hidden = false; }
 
@@ -79,7 +90,7 @@ export function buildDrive(app: App): DriveView {
     const parked = app.isParked();
     const go = (s: Parameters<App['go']>[0]) => () => { closeSheet(); app.go(s); };
     sheetBody.replaceChildren(
-      h('div', { class: 'sheet-head' }, h('div', { class: 'sheet-title' }, 'Sound'), h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Close', onclick: closeSheet }, '✕')),
+      h('div', { class: 'sheet-head' }, h('div', { class: 'sheet-title' }, 'Sound'), closeBtn()),
       h('div', { class: 'field' }, h('div', { class: 'cap' }, 'Car'),
         h('div', { class: 'choices' }, ...app.profiles.map((p) =>
           h('button', { class: 'choice' + (p.id === app.active.id ? ' on' : ''), type: 'button', onclick: () => { app.setActiveProfile(p.id); buildSheet(); } }, p.name)))),
@@ -98,7 +109,7 @@ export function buildDrive(app: App): DriveView {
   }
 
   const main = h('div', { class: 'drive-main' }, gaugeWrap, boost, pad);
-  const el = h('section', { id: 'drive', class: 'screen' }, h('div', { class: 'top' }, status), banner, main, bar, sheet);
+  const el = h('section', { id: 'drive', class: 'screen' }, h('div', { class: 'top' }, status, setBtn), banner, main, bar, sheet);
 
   let lastBoostVar = -1;
 
@@ -113,7 +124,7 @@ export function buildDrive(app: App): DriveView {
     banner.textContent = link.state === 'error' ? 'Adapter problem: ' + link.message : 'Reconnecting…';
     const muted = app.settings.mode === 'mute';
     if (!muted) lastLoud = app.settings.mode;
-    muteBtn.textContent = muted ? '🔇' : '🔊';
+    muteBtn.innerHTML = muted ? ICON.muted : ICON.speaker;
     muteBtn.classList.toggle('on', muted);
     volInput.value = String(app.settings.master);
     volInput.disabled = muted;
