@@ -58,24 +58,11 @@ export class Gauge {
     const cx = w / 2;
     const cy = h / 2;
     const R = (Math.min(w, h) / 2) * 0.94;
-    const lw = R * 0.115;
+    const lw = R * 0.07;
     const c = this.colors;
     const redlineK = Math.min(1, s.rpm / s.redline);
     const maxK = Math.ceil(s.redline / 1000) * 1000;
     const frac = (rpm: number) => Math.min(1, rpm / maxK);
-
-    // shaft-speed glow: the only decoration, brighter with boost
-    const glow = Math.min(1, s.shaft * 0.6 + s.boostN * 0.5 + s.flash * 0.6);
-    if (glow > 0.01) {
-      const g = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, R * 1.04);
-      g.addColorStop(0, 'rgba(0,0,0,0)');
-      g.addColorStop(0.8, hexA(c.accentDeep, 0.1 + glow * 0.35));
-      g.addColorStop(1, hexA(c.accent, glow * 0.55));
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R * 1.04, 0, Math.PI * 2);
-      ctx.fill();
-    }
 
     ctx.lineCap = 'butt';
     // track
@@ -120,35 +107,6 @@ export class Gauge {
       ctx.fillText(String(k), cx + Math.cos(a) * rl, cy + Math.sin(a) * rl);
     }
 
-    // inner boost arc (accent, brighter as boost rises)
-    const ri = R * 0.58;
-    const lwi = R * 0.055;
-    ctx.lineWidth = lwi;
-    ctx.strokeStyle = c.track;
-    ctx.beginPath();
-    ctx.arc(cx, cy, ri, START, START + SWEEP);
-    ctx.stroke();
-    const b = Math.min(1.2, Math.max(0, s.boostN));
-    if (b > 0.004) {
-      ctx.strokeStyle = mix(c.accentDeep, c.accent, Math.min(1, b));
-      ctx.beginPath();
-      ctx.arc(cx, cy, ri, START, START + (SWEEP * Math.min(1, b)));
-      ctx.stroke();
-    }
   }
 }
 
-function parse(hex: string): [number, number, number] {
-  const m = hex.replace('#', '');
-  const n = m.length === 3 ? m.split('').map((x) => x + x).join('') : m;
-  return [parseInt(n.slice(0, 2), 16) || 0, parseInt(n.slice(2, 4), 16) || 0, parseInt(n.slice(4, 6), 16) || 0];
-}
-function hexA(hex: string, a: number): string {
-  const [r, g, b] = parse(hex);
-  return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, a))})`;
-}
-function mix(a: string, b: string, t: number): string {
-  const [r1, g1, b1] = parse(a);
-  const [r2, g2, b2] = parse(b);
-  return `rgb(${Math.round(r1 + (r2 - r1) * t)},${Math.round(g1 + (g2 - g1) * t)},${Math.round(b1 + (b2 - b1) * t)})`;
-}

@@ -60,7 +60,7 @@ export function buildStart(app: App): View {
     sub.textContent = known && app.settings.adapterName ? app.settings.adapterName : '';
     other.style.display = known ? '' : 'none';
     connect.toggleAttribute('disabled', !ble);
-    fake.style.display = '';
+    fake.style.display = import.meta.env.DEV || location.search.includes('dev') ? '' : 'none';
     install.style.display = canInstall() && !isStandalone() ? '' : 'none';
     if (!ble && !status.textContent) setStatus('No Web Bluetooth here. Use Chrome on Android or desktop Chrome. Demo works anywhere.', true);
     else if (!status.textContent) setStatus('Ready');

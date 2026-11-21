@@ -30,10 +30,23 @@ export const DSP = {
   roarNorm: 0.3,
   sportScale: 0.5,
   speedDuckMaxKmh: 120,
-  whineNorm: 0.38,
-  whooshNorm: 0.5,
+  whineNorm: 0.32,
+  whooshNorm: 0.62,
   foundationNorm: 0.35,
   twinBoost: 1.5,
+  /** real compressor whistle is aerodynamic tonal noise, not a pure sine: share of the whine that is a narrow noise band */
+  whineAir: 0.45,
+  /** bandwidth of that noise band as a fraction of pitch (Q = 1 / this) */
+  whineAirBw: 0.035,
+  /** random phase drift of the tone, radians-ish; kills the "synth beep" */
+  whinePhaseNoise: 0.18,
+  whinePhaseNoiseHz: 35,
+  /** upper partials and the octave-down sub read as organ / game; keep them as colour only */
+  upperPartialScale: 0.45,
+  subScale: 0.35,
+  /** foundation is now intake rumble (filtered noise at firing rate), not a saw */
+  rumbleHzMin: 70,
+  rumbleHzMax: 240,
   maxVoices: 14,
   stateHz: 30,
 };
@@ -154,13 +167,16 @@ interface StageVoice {
   wobbleTimer: number;
   f: number;
   gains: Float64Array; // current gains: 5 partials + sub
+  nb: Svf;
+  nbNorm: number;
+  pj: number;
   targets: Float64Array;
 }
 
 function newStage(): StageVoice {
   return {
     phase: 0, subPhase: 0, fmPhase: 0, f: 0, pos: 0, vel: 0, wobble: 0, wobbleTarget: 0, wobbleTimer: 0,
-    gains: new Float64Array(6), targets: new Float64Array(6),
+    gains: new Float64Array(6), targets: new Float64Array(6), nb: new Svf(), nbNorm: 1, pj: 0,
   };
 }
 
@@ -253,7 +269,6 @@ export class TurboDSP {
   private flowJitter = 0;
   private flowJitterTarget = 0;
   private flowJitterTimer = 0;
-  private foundPhase = 0;
   private foundLp = new Svf();
   private foundGain = 0;
   private whooshGain = 0;
@@ -319,7 +334,6 @@ export class TurboDSP {
       const r = p.body.resonators[i];
       if (r) this.res[i]!.set(r[0], r[1], sr);
     }
-    this.foundLp.set(600, 0.7, sr);
     this.applyView();
     this.wgHp.set(3000, 0.7, sr);
     for (let i = 0; i < 2; i++) this.stages[i]!.wobbleTimer = 0;
@@ -598,16 +612,19 @@ export class TurboDSP {
       const f = this.stageFreq(st.whineHzMin, st.whineHzMax, sv.pos) * (1 + t.wobble * sv.wobble) * (1 - 0.12 * this.pitchDip);
       sv.targets[0] = t.partials[0]! * level * this.partialFade(f, 1, nyq);
       sv.targets[1] = t.partials[1]! * (0.4 + 0.6 * pedal) * level * this.partialFade(f, 2, nyq);
-      sv.targets[2] = t.partials[2]! * pedal * level * this.partialFade(f, 3, nyq);
-      sv.targets[3] = t.partials[3]! * pedal * level * this.partialFade(f, 4, nyq);
-      sv.targets[4] = t.partials[4]! * clamp(boostN, 0, 1) * level * this.partialFade(f, 5, nyq);
-      sv.targets[5] = t.subHarmonic * clamp(boostN, 0, 1) * level;
+      sv.targets[2] = DSP.upperPartialScale * t.partials[2]! * pedal * level * this.partialFade(f, 3, nyq);
+      sv.targets[3] = DSP.upperPartialScale * t.partials[3]! * pedal * level * this.partialFade(f, 4, nyq);
+      sv.targets[4] = DSP.upperPartialScale * t.partials[4]! * clamp(boostN, 0, 1) * level * this.partialFade(f, 5, nyq);
+      sv.targets[5] = DSP.subScale * t.subHarmonic * clamp(boostN, 0, 1) * level;
       sv.f = f;
+      // noise band around the pitch; normalise so its loudness matches a sine of the same gain
+      const bw = Math.max(20, f * DSP.whineAirBw);
+      sv.nb.set(f, f / bw, sr);
+      sv.nbNorm = Math.sqrt((sr * 0.5) / bw) * 0.7;
     }
     if (ns === 1) this.stages[1]!.targets.fill(0);
 
     const mainShaft = this.stages[0]!.pos;
-    const fMain = this.stages[0]!.f;
 
     // whoosh
     const flowJ = this.flowJitter;
@@ -627,10 +644,10 @@ export class TurboDSP {
 
     // intake roar: low-mid air rush that gives the sound depth
     const roarT = DSP.roarNorm * p.mix.whoosh * flowN * (0.35 + 0.65 * flowN) * gate * this.duck;
-    this.roarLp.set(220 + 520 * clamp(s.shaft, 0, 1), 0.7, sr);
+    this.roarLp.set(300 + 1100 * clamp(s.shaft, 0, 1), 0.6, sr);
     // foundation (quiet saw at fundamental / 4)
     const foundT = DSP.foundationNorm * p.mix.foundation * Math.pow(Math.max(0, s.shaft), 1.5) * (0.4 + 0.6 * pedal) * gate * this.duck;
-    const foundF = fMain / 4;
+    this.foundLp.set(lerp(DSP.rumbleHzMin, DSP.rumbleHzMax, clamp(mainShaft, 0, 1)), 1.1, sr);
 
     // supercharger
     const scF = (this.rpmS * p.supercharger.pulleyRatio * p.supercharger.lobes) / 60;
@@ -690,6 +707,8 @@ export class TurboDSP {
     const f0 = sv0.f;
     const f1 = ns > 1 ? sv1.f : 0;
     const fmR = 1; // harmonic vibrato only: an inharmonic ratio sounds metallic
+    const pjCoef = 1 - Math.exp((-TWO_PI * DSP.whinePhaseNoiseHz) / sr);
+    const air = DSP.whineAir;
 
     // flutter pulse step (per chunk resolution is plenty for 40-120 ms pulses)
     if (this.flutActive) {
@@ -714,7 +733,7 @@ export class TurboDSP {
       }
     }
     const dipDecay = Math.exp(-1 / (sr * 0.07));
-    this.flutLo.set(230, 0.7, sr);
+    this.flutLo.set(160, 0.8, sr);
     const pinkMask = this.pink.length - 1;
 
     // ---- sample loop ----
@@ -737,7 +756,8 @@ export class TurboDSP {
         if (sv.subPhase >= 1) sv.subPhase -= 1;
         sv.fmPhase += inv * fmR;
         if (sv.fmPhase >= 1) sv.fmPhase -= 1;
-        const ph = sv.phase + t.fmIndex * sinT(sv.fmPhase);
+        sv.pj += (this.noiseRng.bi() - sv.pj) * pjCoef;
+        const ph = sv.phase + t.fmIndex * sinT(sv.fmPhase) + DSP.whinePhaseNoise * sv.pj;
         let x = 0;
         if (g[0]! > 1e-5) x += g[0]! * sinT(ph);
         if (g[1]! > 1e-5) x += g[1]! * sinT(ph * 2);
@@ -745,7 +765,8 @@ export class TurboDSP {
         if (g[3]! > 1e-5) x += g[3]! * sinT(ph * 4);
         if (g[4]! > 1e-5) x += g[4]! * sinT(ph * 5);
         if (g[5]! > 1e-5) x += g[5]! * sinT(sv.subPhase);
-        whine += x;
+        sv.nb.tick(wn);
+        whine += x * (1 - air) + sv.nb.bp * sv.nbNorm * g[0]! * air;
         for (let k = 0; k < 6; k++) g[k]! += incs[si * 6 + k]!;
       }
       // soft saturation on the whine bus: harmonics that move with level
@@ -763,11 +784,9 @@ export class TurboDSP {
       const whoosh = this.whooshBp.bp * 2.2 * this.whooshGain * am;
       this.whooshGain += whooshInc;
 
-      // foundation: saw / 4 through a 600 Hz low-pass
-      this.foundPhase += foundF / sr;
-      if (this.foundPhase >= 1) this.foundPhase -= 1;
-      this.foundLp.tick(this.foundPhase * 2 - 1);
-      const found = this.foundLp.lp * this.foundGain * 2;
+      // foundation: intake rumble, low band of pink noise pulsed by the firing frequency
+      this.foundLp.tick(pn);
+      const found = this.foundLp.bp * this.foundGain * 2.6 * (0.6 + 0.4 * am);
       this.foundGain += foundInc;
 
       // supercharger
@@ -808,7 +827,7 @@ export class TurboDSP {
         this.flutPhase += (f0 * (1 - 0.3 * (1 - this.flutEnv))) / sr;
         if (this.flutPhase >= 1) this.flutPhase -= 1;
         const tone = sinT(this.flutPhase) + 0.3 * sinT(this.flutPhase * 2);
-        flut = (this.flutBp.bp * 0.8 + this.flutLo.lp * 1.6 + tone * 0.35) * e * this.flutAmp;
+        flut = (this.flutBp.bp * 0.9 + this.flutLo.lp * 2.0 + tone * 0.04) * e * this.flutAmp;
         this.flutEnv *= this.flutDecayC;
       }
       this.pitchDip *= dipDecay;
